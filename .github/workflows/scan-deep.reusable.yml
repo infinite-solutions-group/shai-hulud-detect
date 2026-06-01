@@ -1,0 +1,80 @@
+name: supply-chain-deep-scan
+
+# Reusable deep scan (non-blocking, scheduled). Installs dependencies best-effort so the
+# IOC scanner sees installed node_modules (dropper files that only appear post-install),
+# then runs the same OSV + Cobenian checks. A finding fails the scheduled run as an alert;
+# it is NOT a required check, so it never blocks merges.
+#   jobs:
+#     deep:
+#       if: github.event_name == 'schedule'
+#       uses: infinite-solutions-group/shai-hulud-detect/.github/workflows/scan-deep.reusable.yml@<SHA>
+#       permissions: { contents: read }
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  deep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository under test
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: target
+
+      - name: Checkout IOC scanner (pinned to this reusable workflow's commit)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: infinite-solutions-group/shai-hulud-detect
+          ref: ${{ github.job_workflow_sha }}
+          path: .sh-detect
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+
+      - name: Install dependencies (best-effort)
+        working-directory: target
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci || npm install || true
+          elif [ -f package.json ]; then
+            npm install || true
+          fi
+
+      - name: OSV-Scanner (pinned binary, checksum-verified)
+        run: |
+          set -euo pipefail
+          OSV_VERSION="v2.3.8"
+          OSV_SHA256="bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc"
+          curl -sSL -o osv-scanner \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64"
+          echo "${OSV_SHA256}  osv-scanner" | sha256sum -c -
+          chmod +x osv-scanner
+          set +e
+          ./osv-scanner scan source --recursive ./target
+          rc=$?
+          set -e
+          if [ "$rc" -eq 1 ]; then
+            echo "::error::OSV-Scanner found malicious or vulnerable dependencies"; exit 1
+          elif [ "$rc" -ne 0 ] && [ "$rc" -ne 128 ]; then
+            echo "::error::OSV-Scanner errored (rc=$rc)"; exit "$rc"
+          fi
+          echo "OSV-Scanner: clean (rc=$rc)"
+
+      - name: Shai-Hulud IOC deep scan (Cobenian, incl. node_modules)
+        run: |
+          set +e
+          bash .sh-detect/shai-hulud-detector.sh ./target
+          rc=$?
+          set -e
+          case "$rc" in
+            0) echo "Shai-Hulud IOC scan: clean" ;;
+            1) echo "::error::Shai-Hulud HIGH-risk IOC findings"; exit 1 ;;
+            2) echo "::warning::Shai-Hulud medium-risk findings (review)" ;;
+            *) echo "::error::Shai-Hulud scanner errored (rc=$rc)"; exit "$rc" ;;
+          esac
