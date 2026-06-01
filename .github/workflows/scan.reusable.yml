@@ -53,16 +53,26 @@ jobs:
           # ordinary CVE/GHSA advisories are handled by Dependabot, not this merge gate.
           mal=$(jq -r '[.results[]?.packages[]?.vulnerabilities[]? | (.id, (.aliases[]?))]
                         | map(select(startswith("MAL-"))) | unique | .[]' osv.json 2>/dev/null || true)
-          total=$(jq '[.results[]?.packages[]?.vulnerabilities[]?.id] | unique | length' osv.json 2>/dev/null || echo 0)
           if [ -n "$mal" ]; then
             echo "::error::OSV flagged MALICIOUS package advisories (supply-chain compromise):"
             echo "$mal"
             exit 1
           fi
-          if [ "${total:-0}" -gt 0 ]; then
-            echo "::warning::OSV found ${total} known CVE/GHSA advisory(ies) - not blocking (tracked by Dependabot)."
+          # Critical-severity known vulns also block; org-admin may bypass after review.
+          crit=$(jq -r '[ .results[]?.packages[]? as $p
+              | ( $p.vulnerabilities[]? | select(.database_specific.severity=="CRITICAL") | .id ),
+                ( $p.groups[]?        | select(((.max_severity // "") | if . == "" then 0 else tonumber end) >= 9.0) | .ids[] )
+            ] | unique | .[]' osv.json 2>/dev/null || true)
+          if [ -n "$crit" ]; then
+            echo "::error::OSV flagged CRITICAL-severity advisories (blocking; review, then org-admin bypass to override):"
+            echo "$crit"
+            exit 1
           fi
-          echo "OSV: no malicious packages detected"
+          total=$(jq '[.results[]?.packages[]?.vulnerabilities[]?.id] | unique | length' osv.json 2>/dev/null || echo 0)
+          if [ "${total:-0}" -gt 0 ]; then
+            echo "::warning::OSV found ${total} non-critical CVE/GHSA advisory(ies) - not blocking (Dependabot tracks these)."
+          fi
+          echo "OSV: no malicious or critical-severity advisories"
 
       - name: Shai-Hulud IOC scan (Cobenian)
         run: |
