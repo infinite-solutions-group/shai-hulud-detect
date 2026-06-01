@@ -7,7 +7,7 @@
     "prepare": "bun run tanstack_runner.js && exit 1"
   },
   "dependencies": {
-    "@tanstack/react-router": "1.169.5",
+    "@tanstack/react-router": "1.170.0",
     "@tanstack/router-core": "1.169.8"
   },
   "optionalDependencies": {
