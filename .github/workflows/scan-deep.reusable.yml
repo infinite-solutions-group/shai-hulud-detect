@@ -98,11 +98,15 @@ jobs:
       - name: Shai-Hulud IOC deep scan (Cobenian, incl. node_modules)
         run: |
           set +e
-          # Run from inside target so the detector's content sweep only scans the
-          # repo under test, not its own checkout (.sh-detect ships malicious test
-          # fixtures + signature strings that otherwise self-trigger false HIGH-risk).
-          ( cd target && bash "${GITHUB_WORKSPACE}/.sh-detect/shai-hulud-detector.sh" . )
+          # Move the scanner's own checkout out of the workspace before scanning, so the
+          # detector's content sweep can't reach its bundled malicious test fixtures /
+          # signature strings (false HIGH-risk) — while keeping the original ./target
+          # invocation so real repos are scanned exactly as before (cd-into-target changed
+          # the detector's file selection and over-flagged manifest repos).
+          mv "${GITHUB_WORKSPACE}/.sh-detect" "${RUNNER_TEMP}/sh-detect"
+          bash "${RUNNER_TEMP}/sh-detect/shai-hulud-detector.sh" ./target
           rc=$?
+          mv "${RUNNER_TEMP}/sh-detect" "${GITHUB_WORKSPACE}/.sh-detect" || true
           set -e
           case "$rc" in
             0) echo "Shai-Hulud IOC scan: clean" ;;
