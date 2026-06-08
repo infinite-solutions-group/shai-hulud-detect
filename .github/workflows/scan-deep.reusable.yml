@@ -51,8 +51,17 @@ jobs:
           set -euo pipefail
           OSV_VERSION="v2.3.8"
           OSV_SHA256="bc98e15319ed0d515e3f9235287ba53cdc5535d576d24fd573978ecfe9ab92dc"
-          curl -sSL -o osv-scanner \
-            "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64"
+          # Download + verify with retries. The checksum guard never relaxes:
+          # curl -f fails on HTTP errors (instead of saving an error page), and the
+          # loop re-downloads on a checksum mismatch too (catches truncated 200s).
+          for attempt in 1 2 3 4 5; do
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 -o osv-scanner \
+              "https://github.com/google/osv-scanner/releases/download/${OSV_VERSION}/osv-scanner_linux_amd64" \
+              && echo "${OSV_SHA256}  osv-scanner" | sha256sum -c - && break
+            echo "::warning::osv-scanner download/verify failed (attempt ${attempt}/5); retrying"
+            rm -f osv-scanner; sleep $((attempt * 5))
+          done
+          # Hard gate: fail the job if we still do not have the exact pinned binary.
           echo "${OSV_SHA256}  osv-scanner" | sha256sum -c -
           chmod +x osv-scanner
           set +e
