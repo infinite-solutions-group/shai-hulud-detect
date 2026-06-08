@@ -86,7 +86,10 @@ jobs:
       - name: Shai-Hulud IOC scan (Cobenian)
         run: |
           set +e
-          bash .sh-detect/shai-hulud-detector.sh ./target
+          # Run from inside target so the detector's content sweep only scans the
+          # repo under test, not its own checkout (.sh-detect ships malicious test
+          # fixtures + signature strings that otherwise self-trigger false HIGH-risk).
+          ( cd target && bash "${GITHUB_WORKSPACE}/.sh-detect/shai-hulud-detector.sh" . )
           rc=$?
           set -e
           # 0 clean | 1 high-risk (block) | 2 medium-risk (warn, non-blocking) | >2 error
