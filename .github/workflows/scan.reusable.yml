@@ -24,6 +24,21 @@ jobs:
         with:
           path: target
 
+      # Fail fast if the pinned ref is empty. github.job_workflow_sha normally holds
+      # the exact commit this reusable workflow was called at, but it comes back EMPTY
+      # on "Re-run failed jobs" for a reusable-workflow job. An empty ref makes
+      # actions/checkout silently fall back to the scanner's DEFAULT BRANCH — both an
+      # unpinned (unverified) scanner and a confusing failure mode, since checkout then
+      # makes a "determine default branch" API call that turns transient GitHub
+      # degradation into an opaque "No server is currently available" checkout error.
+      # Guard here so the operator gets an actionable message instead.
+      - name: Assert scanner ref is pinned
+        run: |
+          if [ -z "${{ github.job_workflow_sha }}" ]; then
+            echo "::error::github.job_workflow_sha is empty, so the IOC scanner would be checked out from its default branch instead of the pinned commit. This happens on 'Re-run failed jobs' for a reusable workflow — re-run ALL jobs or push a fresh commit instead." >&2
+            exit 1
+          fi
+
       - name: Checkout IOC scanner (pinned to this reusable workflow's commit)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
