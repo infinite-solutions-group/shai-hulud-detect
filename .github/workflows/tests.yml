@@ -1,0 +1,54 @@
+name: tests
+
+# Enforces the gate the README already states: "./run-tests.sh must pass"
+# (CONTRIBUTING step 4) — 169 checks across the test-cases/ fixtures.
+#
+# DELIBERATELY NOT a supply-chain self-scan. This repo must not call its own
+# scan.reusable.yml, and a future maintainer "fixing" that omission would break
+# CI permanently. The reasons:
+#
+#   * There are no dependency manifests at the repo root — it is bash only. All
+#     55 manifests live under test-cases/, and they pin knowingly-compromised
+#     versions on purpose. OSV would flag MAL- advisories and hard-fail.
+#   * The IOC content sweep would hit the attack fixtures (axios-attack,
+#     bitwarden-attack, chalk-debug-attack, …) and exit 1 as HIGH risk.
+#
+# Every finding would be a fixture, i.e. a false positive by construction. The
+# reusable workflow already carries a narrower version of this guard — it moves
+# .sh-detect out of the workspace so the scanner's own fixtures cannot trip it
+# when scanning *other* repos. That guard does not help when this repo is the
+# target.
+#
+# If dependencies are ever added at the root, scan those paths specifically
+# rather than pointing the standard workflow at the whole tree.
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    # The suite walks 62 fixtures with a 120s per-test cap; well clear of this
+    # in practice, but a hung fixture should fail rather than burn a runner.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Record environment
+        run: |
+          bash --version | head -1
+          # The suite prefers GNU `timeout`; absent it degrades to no per-test
+          # cap, so confirm it is actually present on the runner.
+          command -v timeout >/dev/null && echo "timeout: $(timeout --version | head -1)" \
+            || echo "::warning::GNU timeout missing — per-test time limits disabled"
+
+      - name: Run the detector test suite
+        run: ./run-tests.sh
