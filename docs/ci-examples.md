@@ -17,6 +17,24 @@ The detector returns the same exit codes everywhere — `0` clean, `1` high-risk
     path: shai-hulud-report.log
 ```
 
+## GitHub Actions (reusable workflow)
+
+```yaml
+jobs:
+  supply-chain:
+    uses: infinite-solutions-group/shai-hulud-detect/.github/workflows/scan.reusable.yml@<SHA>
+    # scanner_ref duplicates the uses: SHA because github.job_workflow_sha is empty on cross-repository calls
+    with: { scanner_ref: <SHA> }
+    permissions: { contents: read }
+  deep:
+    if: github.event_name == 'schedule'
+    uses: infinite-solutions-group/shai-hulud-detect/.github/workflows/scan-deep.reusable.yml@<SHA>
+    with: { scanner_ref: <SHA> }
+    permissions: { contents: read }
+```
+
+Why `scanner_ref`: `github.job_workflow_sha` is empty on cross-repository reusable-workflow calls, so without it the scanner would be checked out from its default branch instead of the pinned commit. It must be a full 40-hex SHA. Bump `uses:` and `scanner_ref` together: a mismatch is only detectable when `github.job_workflow_sha` is present (same-repository calls).
+
 ## GitHub Actions (bulk scan of many repos)
 
 ```yaml

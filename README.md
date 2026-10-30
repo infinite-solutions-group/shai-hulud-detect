@@ -94,6 +94,21 @@ Auto-detection looks for marker files in your tree, skipping `node_modules/`, `v
     path: shai-hulud-report.log
 ```
 
+### Reusable workflow (GitHub Actions)
+
+Other repos can call the pinned reusable workflows instead of copying the script. Pin `uses:` to a full commit SHA and pass the same SHA as `scanner_ref`:
+
+```yaml
+jobs:
+  supply-chain:
+    uses: infinite-solutions-group/shai-hulud-detect/.github/workflows/scan.reusable.yml@<SHA>
+    # scanner_ref duplicates the uses: SHA because github.job_workflow_sha is empty on cross-repository calls
+    with: { scanner_ref: <SHA> }
+    permissions: { contents: read }
+```
+
+`scanner_ref` is required because `github.job_workflow_sha` is empty on cross-repository reusable-workflow calls, so without it the scanner would be checked out from its default branch instead of the pinned commit. The value must be a full 40-hex commit SHA. When GitHub does provide `github.job_workflow_sha` (same-repository calls) the workflow also refuses a mismatch; on cross-repository calls it cannot detect one, so always bump `uses:` and `scanner_ref` together, in the same PR, to the same SHA. `scan-deep.reusable.yml` takes the same input.
+
 For GitLab CI, Jenkins, and a custom exit-code handler in shell, see [`docs/ci-examples.md`](docs/ci-examples.md) — or just call the script and switch on `$?`, the exit-code contract is the same everywhere.
 
 ## Common scenarios

@@ -5,6 +5,11 @@ All notable changes to the Shai-Hulud NPM Supply Chain Attack Detector will be d
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Reusable workflows: pin the IOC scanner on cross-repository calls (`scanner_ref`)**: `github.job_workflow_sha` is empty on cross-repository reusable-workflow calls (schedule, pull_request, workflow_dispatch) and on "Re-run failed jobs", so `scan.reusable.yml` and `scan-deep.reusable.yml` were checking the scanner out from its default branch instead of the caller's pinned commit. Both now take a `scanner_ref` input (the same SHA as the `uses:` line), prefer `job_workflow_sha` when present, refuse a mismatch when `job_workflow_sha` is present (same-repository calls), require a full 40-hex SHA, and fail fast with an actionable message when neither is set. Callers of BOTH workflows must add `with: { scanner_ref: <SHA> }` and keep it equal to the `uses:` SHA.
+
 ## [3.6.0] - 2026-06-01
 
 ### Added
