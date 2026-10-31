@@ -6,11 +6,22 @@ name: supply-chain-scan
 #   jobs:
 #     supply-chain:
 #       uses: infinite-solutions-group/shai-hulud-detect/.github/workflows/scan.reusable.yml@<SHA>
+#       # scanner_ref duplicates the uses: SHA because github.job_workflow_sha is empty on cross-repository calls
+#       with: { scanner_ref: <SHA> }
 #       permissions: { contents: read }
 # Status-check context is "supply-chain / scan" — require that in rulesets.
 
 on:
   workflow_call:
+    inputs:
+      scanner_ref:
+        type: string
+        default: ''
+        description: >-
+          Commit SHA of shai-hulud-detect this reusable is pinned at — pass the same
+          40-char SHA as in `uses:`. Required in practice: github.job_workflow_sha is
+          empty on cross-repository reusable-workflow calls (observed on schedule,
+          pull_request and workflow_dispatch).
 
 permissions:
   contents: read
@@ -24,26 +35,46 @@ jobs:
         with:
           path: target
 
-      # Fail fast if the pinned ref is empty. github.job_workflow_sha normally holds
-      # the exact commit this reusable workflow was called at, but it comes back EMPTY
-      # on "Re-run failed jobs" for a reusable-workflow job. An empty ref makes
-      # actions/checkout silently fall back to the scanner's DEFAULT BRANCH — both an
-      # unpinned (unverified) scanner and a confusing failure mode, since checkout then
-      # makes a "determine default branch" API call that turns transient GitHub
-      # degradation into an opaque "No server is currently available" checkout error.
-      # Guard here so the operator gets an actionable message instead.
-      - name: Assert scanner ref is pinned
+      # Resolve the commit to check the IOC scanner out at, and fail fast if there is
+      # none. github.job_workflow_sha normally holds the exact commit this reusable
+      # workflow was called at, but it comes back EMPTY on cross-repository reusable-workflow
+      # calls (observed on schedule, pull_request and workflow_dispatch runs) and on
+      # "Re-run failed jobs". An empty ref makes actions/checkout silently
+      # fall back to the scanner's DEFAULT BRANCH — an unpinned (unverified) scanner.
+      # So fall back to the explicit scanner_ref input (the same SHA as the caller's
+      # uses: line), require a full 40-hex SHA, and refuse a mismatch.
+      - name: Resolve pinned scanner ref
+        id: ref
+        env:
+          JOB_SHA: ${{ github.job_workflow_sha }}
+          INPUT_REF: ${{ inputs.scanner_ref }}
         run: |
-          if [ -z "${{ github.job_workflow_sha }}" ]; then
-            echo "::error::github.job_workflow_sha is empty, so the IOC scanner would be checked out from its default branch instead of the pinned commit. This happens on 'Re-run failed jobs' for a reusable workflow — re-run ALL jobs or push a fresh commit instead." >&2
+          set -euo pipefail
+          if [ -n "$JOB_SHA" ] && [ -n "$INPUT_REF" ] && [ "$JOB_SHA" != "$INPUT_REF" ]; then
+            echo "::error::scanner_ref ($INPUT_REF) does not match the commit this reusable workflow was called at ($JOB_SHA); the caller is mis-pinned — set scanner_ref to the same SHA as the uses: line"
             exit 1
           fi
+          if [ -n "$JOB_SHA" ]; then
+            REF="$JOB_SHA"; SOURCE=job_workflow_sha
+          else
+            REF="$INPUT_REF"; SOURCE=scanner_ref
+          fi
+          if [ -z "$REF" ]; then
+            echo "::error::github.job_workflow_sha is empty and no scanner_ref input was given, so the IOC scanner cannot be pinned. Add \`with: { scanner_ref: <SHA> }\` to the calling job (the same SHA as its uses: line) — github.job_workflow_sha is empty on cross-repository calls (schedule, pull_request, workflow_dispatch). Same-repository callers hitting this on 'Re-run failed jobs' can re-run ALL jobs instead."
+            exit 1
+          fi
+          if ! [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::scanner_ref must be a full 40-hex commit SHA, got '$REF' — a branch or tag name is never accepted here"
+            exit 1
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Pinned scanner ref: $REF (source: $SOURCE)"
 
       - name: Checkout IOC scanner (pinned to this reusable workflow's commit)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: infinite-solutions-group/shai-hulud-detect
-          ref: ${{ github.job_workflow_sha }}
+          ref: ${{ steps.ref.outputs.ref }}
           path: .sh-detect
 
       - name: OSV-Scanner (block on MALICIOUS packages; report CVEs)
